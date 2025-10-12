@@ -1,0 +1,11 @@
+void setup()
+{
+ pinMode(11,OUTPUT); //Set PWM outlet 11
+}
+void loop()
+{
+ int n = analogRead(A0); //Read the value of the A0 simulation port (0-5v
+//corresponding to 0-1204 value)
+ analogWrite(11,n/4); //The maximum value of PWM is 255, so the value of the
+//simulated port is divided by 4.
+} 
