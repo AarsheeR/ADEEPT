@@ -1,0 +1,21 @@
+// Passive buzzer - more control over the sound (pitch)
+// beeping
+
+int buzzerPin = 3;
+
+void setup() {
+  // put your setup code here, to run once:
+  pinMode(buzzerPin, OUTPUT);
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  for (int i=0; i<250; i++) // half sec beep
+  {
+    digitalWrite(buzzerPin, HIGH);
+    delay(5);
+    digitalWrite(buzzerPin, LOW);
+    delay(5); // adjust the delay time to adjust the pitch (highest pitch -> 1)
+  }
+  delay(500); // half sec pause
+}
