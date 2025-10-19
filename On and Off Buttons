@@ -18,6 +18,6 @@ void loop() {
 
   if (digitalRead(buttonOffPin) == LOW)
   {
-    digitalWrite(ledPin, HIGH);
+    digitalWrite(ledPin, LOW);
   }
 }
