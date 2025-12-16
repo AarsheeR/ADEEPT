@@ -1,12 +1,65 @@
+CODE - turns on only while pressing 
+#define LED_PIN 8
+#define BUTTON_PIN 7
+
 void setup() {
-  pinMode(2, INPUT);
-  pinMode(8, OUTPUT);
+  // put your setup code here, to run once:
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT);
 }
 
 void loop() {
-  if (digitalRead(2) == HIGH) {
-    digitalWrite(8, HIGH);
-  } else {
-    digitalWrite(8, LOW);
+  // put your main code here, to run repeatedly:
+  if (digitalRead(BUTTON_PIN) == HIGH)
+  {
+    digitalWrite(LED_PIN, HIGH);
+  }
+  else
+  {
+    digitalWrite(LED_PIN, LOW);
+  }
+}
+
+
+IMPROVED CODE - press once it turns on press again it turns off
+
+#define LED_PIN 8
+#define BUTTON_PIN 7
+
+byte lastButtonState;
+byte ledState = LOW;
+
+unsigned long lastTimeButtonStateChanged = millis();
+unsigned long debounceDuration = 50; //millis
+
+void setup() {
+  // put your setup code here, to run once:
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT);
+  lastButtonState = digitalRead(BUTTON_PIN);
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  if (millis() - lastTimeButtonStateChanged >= debounceDuration)
+  {
+    byte buttonState = digitalRead(BUTTON_PIN);
+    if (buttonState != lastButtonState) //state has changed
+    {
+      lastTimeButtonStateChanged = millis();
+      lastButtonState = buttonState;
+      if (buttonState == LOW) //released
+      {
+          if(ledState == HIGH)
+          {
+            ledState = LOW;
+          }
+          else
+          {
+            ledState = HIGH;
+          }
+          digitalWrite(LED_PIN, ledState);
+      }
+    }
   }
 }
