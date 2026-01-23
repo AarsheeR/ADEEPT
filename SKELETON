@@ -1,0 +1,73 @@
+// ===== MODES =====
+#define AMBIENT_MODE 0
+#define FOCUS_MODE 1
+
+int currentMode = AMBIENT_MODE;
+
+// ===== BUTTON =====
+const int buttonPin = 2;
+
+// Timing constants
+const unsigned long debounceTime = 20;
+const unsigned long longPressTime = 350;
+
+// Button state tracking
+bool lastButtonState = HIGH;
+bool buttonPressed = false;
+unsigned long pressStartTime = 0;
+unsigned long lastDebounceTime = 0;
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(buttonPin, INPUT_PULLUP); // Make the button pin an input with the internal pull up resistor enabled
+
+  Serial.println("System started");
+  Serial.println("Mode: AMBIENT (placeholder)");
+}
+
+void loop() {
+  ButtonOne();
+  //other loop code goes here if neccessary, ensure no delays or loops that exit quickly
+}
+
+void ButtonOne() {
+  int reading = digitalRead(buttonPin);
+
+  // Debounce check
+  if (reading != lastButtonState) {
+    lastDebounceTime = millis();
+  }
+
+  if ((millis() - lastDebounceTime) > debounceTime) {
+
+    // Button pressed
+    if (reading == LOW && !buttonPressed) {
+      buttonPressed = true;
+      pressStartTime = millis();
+    }
+
+    // Button released
+    if (reading == HIGH && buttonPressed) {
+      buttonPressed = false;
+      unsigned long pressDuration = millis() - pressStartTime;
+
+      if (pressDuration >= longPressTime) {
+        currentMode = AMBIENT_MODE;
+        Serial.println("LONG PRESS → AMBIENT MODE (placeholder)");
+      } else {
+        currentMode = FOCUS_MODE;
+        Serial.println("SHORT PRESS → FOCUS MODE (placeholder)");
+      }
+    }
+  }
+
+  lastButtonState = reading;
+
+  // ===== MODE PLACEHOLDERS =====
+  if (currentMode == AMBIENT_MODE) {
+    // later: clock + ambient light
+  } 
+  else if (currentMode == FOCUS_MODE) {
+    // later: timer + buzzer
+  }
+}
