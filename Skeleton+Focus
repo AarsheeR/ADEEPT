@@ -1,0 +1,124 @@
+// ===== MODES =====
+#include <LiquidCrystal.h>
+#define AMBIENT_MODE 0
+#define FOCUS_MODE 1
+
+// for focus mode timer
+int min = 1;
+int sec = 59;
+bool timerRunning = true;
+
+LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
+int currentMode = AMBIENT_MODE;
+
+// ===== BUTTON =====
+const int buttonPin = 2;
+
+// Timing constants
+const unsigned long debounceTime = 20;
+const unsigned long longPressTime = 350;
+
+// Button state tracking
+bool lastButtonState = HIGH;
+bool buttonPressed = false;
+unsigned long pressStartTime = 0;
+unsigned long lastDebounceTime = 0;
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(buttonPin, INPUT_PULLUP); // Make the button pin an input with the internal pull up resistor enabled
+
+  Serial.println("System started");
+  Serial.println("Mode: AMBIENT (placeholder)");
+
+  lcd.begin(16, 2);
+  // Print a message to the LCD.
+  lcd.print("Mode: AMBIENT");
+}
+
+
+void loop() {
+  ButtonOne();
+  //other loop code goes here if neccessary, ensure no delays or loops that exit quickly
+}
+
+void ButtonOne() {
+  int reading = digitalRead(buttonPin);
+
+  // Debounce check
+  if (reading != lastButtonState) {
+    lastDebounceTime = millis();
+  }
+
+  if ((millis() - lastDebounceTime) > debounceTime) {
+
+    // Button pressed
+    if (reading == LOW && !buttonPressed) {
+      buttonPressed = true;
+      pressStartTime = millis();
+    }
+
+    // Button released
+    if (reading == HIGH && buttonPressed) {
+      buttonPressed = false;
+      unsigned long pressDuration = millis() - pressStartTime;
+
+      if (pressDuration >= longPressTime) {
+        currentMode = AMBIENT_MODE;
+        Serial.println("LONG PRESS → AMBIENT MODE (placeholder)");
+        lcd.clear();
+        lcd.print("Mode: AMBIENT");
+      } else {
+        currentMode = FOCUS_MODE;
+        Serial.println("SHORT PRESS → FOCUS MODE (placeholder)");
+        lcd.clear();
+        lcd.print("Mode: FOCUS");
+      }
+    }
+  }
+
+  lastButtonState = reading;
+
+  // ===== MODE PLACEHOLDERS =====
+  if (currentMode == AMBIENT_MODE) {
+    // later: clock + ambient light
+
+    // reset the timer when switching between modes
+    min = 1;
+    sec = 59;
+    timerRunning = true;
+  } 
+  else if (currentMode == FOCUS_MODE) {
+    // later: timer + buzzer
+    if(timerRunning == true)
+    {
+      lcd.setCursor(0, 1);
+      if(min < 10) 
+      {
+        lcd.print("0"); 
+      }
+      lcd.print(min);
+      lcd.print(":");
+      if(sec < 10) 
+      {
+        lcd.print("0"); 
+      }
+      lcd.print(sec);
+      
+      delay(100); 
+
+      sec--;  
+      if(sec < 0) 
+      {    
+        sec = 59;
+        min--;
+      }
+    }
+    if(min < 0)
+    {
+      timerRunning = false;
+      lcd.setCursor(0, 1);
+      lcd.print("Time's up!");
+    }
+  }
+}
