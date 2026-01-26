@@ -1,0 +1,180 @@
+// ===== MODES =====
+#define AMBIENT_MODE 0
+#define FOCUS_MODE 1
+#include <Wire.h> //for the lcd
+#include <LiquidCrystal_I2C.h> //for the lcd
+#include <virtuabotixRTC.h> //for the rtc module
+
+int currentMode = AMBIENT_MODE;
+LiquidCrystal_I2C lcd(0x27, 16, 2); // for the lcd display and i2c address
+
+// CLK, DAT, RST ===== for the rtc module
+virtuabotixRTC myRTC(6, 7, 8);
+
+// ===== BUTTON =====
+const int buttonPin = 2;
+bool introDone = false; //to adress inital message and looping errors
+
+// ===== PHOTORESISTOR =====
+const int ldrPin = A0;
+const int darkThreshold = 100;  // adjust as needed
+const int led = 13;
+
+// Timing constants
+const unsigned long debounceTime = 20;
+const unsigned long longPressTime = 350;
+
+// Button state tracking
+bool lastButtonState = HIGH;
+bool buttonPressed = false;
+unsigned long pressStartTime = 0;
+unsigned long lastDebounceTime = 0;
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(buttonPin, INPUT_PULLUP); // Make the button pin an input with the internal pull up resistor enabled
+  pinMode(led, OUTPUT); // led
+  Serial.println("System started");
+  Serial.println("Mode: AMBIENT (placeholder)");
+  // SET TIME ONCE, THEN COMMENT OUT 
+  // seconds, minutes, hours, dayOfWeek, day, month, year
+  //myRTC.setDS1302Time(0, 54, 15, 2, 26, 1, 2026);
+
+
+  // initialize the LCD
+	lcd.begin();
+	// Turn on the blacklight and print a message.
+	lcd.backlight();
+  lcd.setCursor(0, 0);
+	lcd.print("Hello, I am Desk");
+  lcd.setCursor(0, 1);
+  lcd.print("Buddy ;)");
+  delay(5000);
+  lcd.clear();
+
+  introDone = true;   // loop is allowed to run
+}
+
+void loop() {
+  if (!introDone) {
+    return;   // do NOTHING until intro finishes
+  }
+  ButtonOne();
+  //other loop code goes here if neccessary, ensure no delays or loops that exit quickly
+}
+
+void ButtonOne() {
+  int reading = digitalRead(buttonPin);
+
+  // Debounce check
+  if (reading != lastButtonState) {
+    lastDebounceTime = millis();
+  }
+
+  if ((millis() - lastDebounceTime) > debounceTime) {
+
+    // Button pressed
+    if (reading == LOW && !buttonPressed) {
+      buttonPressed = true;
+      pressStartTime = millis();
+    }
+
+    // Button released
+    if (reading == HIGH && buttonPressed) {
+      buttonPressed = false;
+      unsigned long pressDuration = millis() - pressStartTime;
+
+      if (pressDuration >= longPressTime) {
+        currentMode = AMBIENT_MODE;
+        lcd.clear();
+        Serial.println("LONG PRESS → AMBIENT MODE");
+      } else {
+        currentMode = FOCUS_MODE;
+        lcd.clear();
+        Serial.println("SHORT PRESS → FOCUS MODE");
+      }
+    }
+  }
+
+  lastButtonState = reading;
+
+  // ===== MODE PLACEHOLDERS =====
+  static unsigned long lastUpdate = 0;
+
+  if (currentMode == AMBIENT_MODE) {
+    if (millis() - lastUpdate > 1000) {  // update once per second
+      lastUpdate = millis();
+      showClock();
+      handleAmbientLight();
+    }
+  } 
+  else if (currentMode == FOCUS_MODE) {
+    lcd.setCursor(0, 0);
+    lcd.print("MODE: Focus    ");
+  }
+
+}
+
+void showClock() {
+  myRTC.updateTime();
+
+  // ----- Converting from military time ------
+
+  int hour24 = myRTC.hours;
+  int hour12;
+  String ampm;
+
+  if (hour24 == 0) {
+    hour12 = 12;
+    ampm = "AM";
+  } else if (hour24 < 12) {
+    hour12 = hour24;
+    ampm = "AM";
+  } else if (hour24 == 12) {
+    hour12 = 12;
+    ampm = "PM";
+  } else {
+    hour12 = hour24 - 12;
+    ampm = "PM";
+  }
+
+  // ----- LINE 1: TIME ----
+  lcd.setCursor(0, 0);
+  lcd.print("Time: ");
+
+  if (myRTC.hours < 10) lcd.print("0");
+  lcd.print(hour12);
+  lcd.print(":");
+  if (myRTC.minutes < 10) lcd.print("0");
+  lcd.print(myRTC.minutes);
+  lcd.print(" ");
+  lcd.print(ampm);
+  // ----- LINE 2: DATE -----
+  lcd.setCursor(0, 1);
+  lcd.print("Date: ");
+
+  if (myRTC.month < 10) lcd.print("0");
+  lcd.print(myRTC.month);
+  lcd.print("/");
+
+  if (myRTC.dayofmonth < 10) lcd.print("0");
+  lcd.print(myRTC.dayofmonth);
+  lcd.print("/");
+
+  lcd.print(myRTC.year);
+}
+
+void handleAmbientLight() {
+  int lightLevel = analogRead(ldrPin);
+
+  if (lightLevel < darkThreshold) {
+     //dark →  led ON
+     Serial.println("Ambient: DARK");
+     digitalWrite(led, HIGH);
+  } else {
+     //bright →  led OFF
+     Serial.println("Ambient: BRIGHT");
+     digitalWrite(led,LOW);
+  }
+}
+
