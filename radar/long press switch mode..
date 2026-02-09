@@ -1,0 +1,254 @@
+#include <Servo.h>
+
+// ===== MODES =====
+#define AMBIENT_MODE 0
+#define FOCUS_MODE 1
+#define RADAR_MODE 2
+
+// ===== BUTTON =====
+const int button1 = 2; // button for mode switching
+
+// ===== RADAR COMPONENTS =====
+// Ultrasonic sensor pins
+const int trigPin = 10;
+const int echoPin = 11;
+
+// LEDs
+const int redLED = 9; 
+const int greenLED = 8; 
+
+// Servo motor
+Servo myServo;
+const int servoPin = 12;
+
+// Radar system state
+bool radarActive = true; // Radar is active only in RADAR_MODE
+bool radarLastButtonState = HIGH;
+int scanDirection = 1; // 1: forward scan, -1: reverse scan
+int currentAngle = 15; // Current servo angle
+unsigned long lastScanTime = 0;
+const int scanDelay = 30; // Delay between each scan step (ms)
+
+// Distance variables
+long radarDuration;
+int radarDistance;
+
+// ===== SYSTEM STATE =====
+int currentMode = AMBIENT_MODE;  // Start in AMBIENT mode
+
+// ===== BUTTON STATE =====
+bool lastButtonState = HIGH;
+bool buttonPressed = false;
+unsigned long pressStartTime = 0;
+unsigned long lastDebounceTime = 0;
+
+const unsigned long debounceTime = 20;
+const unsigned long longPressTime = 350;  // Time for long press to switch modes
+
+// ===================== SETUP ========================
+
+void setup() {
+  Serial.begin(9600);
+  
+  // ===== BUTTON SETUP =====
+  pinMode(button1, INPUT_PULLUP);
+  
+  // ===== RADAR SETUP =====
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(redLED, OUTPUT);
+  pinMode(greenLED, OUTPUT);
+  myServo.attach(servoPin);
+  myServo.write(currentAngle);
+  
+  // Initialize radar LEDs based on mode
+  updateRadarLEDs();
+  
+  Serial.println("System started");
+  Serial.println("Mode: AMBIENT (Long press to switch modes)");
+  Serial.println("Cycle: AMBIENT → FOCUS → RADAR → AMBIENT");
+}
+
+// ====================== LOOP =====================
+
+void loop() {
+  // Handle mode switching button
+  handleButton1();
+  
+  // Execute current mode functionality
+  switch (currentMode) {
+    case AMBIENT_MODE:
+      runAmbientMode();
+      break;
+    case FOCUS_MODE:
+      runFocusMode();
+      break;
+    case RADAR_MODE:
+      runRadarMode();
+      break;
+  }
+  
+  // Update radar LEDs (status indicator)
+  updateRadarLEDs();
+}
+
+// ================= MODE BUTTON ==========
+
+void handleButton1() {
+  int reading = digitalRead(button1);
+
+  // Debounce check
+  if (reading != lastButtonState) {
+    lastDebounceTime = millis();
+  }
+
+  if ((millis() - lastDebounceTime) > debounceTime) {
+    // Button pressed
+    if (reading == LOW && !buttonPressed) {
+      buttonPressed = true;
+      pressStartTime = millis();
+    }
+
+    // Button released
+    if (reading == HIGH && buttonPressed) {
+      buttonPressed = false;
+      unsigned long pressDuration = millis() - pressStartTime;
+
+      // LONG PRESS → SWITCH MODES
+      if (pressDuration >= longPressTime) {
+        // Cycle to next mode
+        currentMode = (currentMode + 1) % 3;  // 0→1→2→0
+        
+        // Print mode information
+        switch (currentMode) {
+          case AMBIENT_MODE:
+            Serial.println("Mode switched to: AMBIENT");
+            // Reset radar to initial position when leaving radar mode
+            currentAngle = 15;
+            scanDirection = 1;
+            myServo.write(currentAngle);
+            break;
+          case FOCUS_MODE:
+            Serial.println("Mode switched to: FOCUS");
+            // Reset radar to initial position when leaving radar mode
+            currentAngle = 15;
+            scanDirection = 1;
+            myServo.write(currentAngle);
+            break;
+          case RADAR_MODE:
+            Serial.println("Mode switched to: RADAR");
+            break;
+        }
+      }
+    }
+  }
+
+  lastButtonState = reading;
+}
+
+// ================= AMBIENT MODE =========
+void runAmbientMode() {
+  static unsigned long lastUpdate = 0;
+  
+  if (millis() - lastUpdate > 1000) {
+    lastUpdate = millis();
+    Serial.println("AMBIENT MODE active");
+  }
+}
+
+// ================= FOCUS MODE =========
+void runFocusMode() {
+  static unsigned long lastUpdate = 0;
+  
+  if (millis() - lastUpdate > 1000) {
+    lastUpdate = millis();
+    Serial.println("FOCUS MODE active");
+  }
+
+}
+
+// ================= RADAR MODE =========
+void runRadarMode() {
+  // Perform radar scanning
+  performRadarScan();
+  
+  // Print radar status occasionally
+  static unsigned long lastStatusPrint = 0;
+  if (millis() - lastStatusPrint > 3000) {
+    lastStatusPrint = millis();
+    Serial.println("RADAR MODE active");
+  }
+}
+
+// ================= RADAR FUNCTIONS =======================
+
+// Perform radar scanning
+void performRadarScan() {
+  // Check if it's time for next scan step
+  if (millis() - lastScanTime >= scanDelay) {
+    lastScanTime = millis();
+    
+    // Calculate distance
+    radarDistance = calculateRadarDistance();
+    
+    // Send data to serial (for visualization)
+    Serial.print("Radar: ");
+    Serial.print(currentAngle);
+    Serial.print("°, Distance: ");
+    Serial.print(radarDistance);
+    Serial.println("cm");
+    
+    // Update angle
+    currentAngle = currentAngle + scanDirection;
+    myServo.write(currentAngle);
+    
+    // Check if need to change scan direction
+    if (currentAngle >= 165) {
+      scanDirection = -1;  // Start reverse scan
+    } else if (currentAngle <= 15) {
+      scanDirection = 1;   // Start forward scan
+    }
+  }
+}
+
+// Calculate distance using ultrasonic sensor
+int calculateRadarDistance() {
+  // Send ultrasonic pulse
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  
+  // Read echo time
+  radarDuration = pulseIn(echoPin, HIGH);
+  
+  // Calculate distance in cm
+  radarDistance = radarDuration * 0.034 / 2;
+  
+  return radarDistance;
+}
+
+// Update radar LED status based on mode
+void updateRadarLEDs() {
+  if (currentMode == RADAR_MODE) 
+  {
+    // Radar mode: LED2 ON continuously (green running light)
+    if (radarDistance < 30)
+    {
+      digitalWrite(redLED, HIGH);
+      digitalWrite(greenLED, LOW);
+    }
+    else
+    {
+      digitalWrite(redLED, LOW);
+      digitalWrite(greenLED, HIGH);
+    }
+  } 
+  else 
+  {
+    // System standby: both led off
+    digitalWrite(redLED, LOW);
+    digitalWrite(greenLED, LOW);
+  }
+}
