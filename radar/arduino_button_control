@@ -1,0 +1,162 @@
+// Includes the Servo library
+#include <Servo.h>
+
+// Defines Tirg and Echo pins of the Ultrasonic Sensor
+const int trigPin = 10;
+const int echoPin = 11;
+// red led1 & green led2 & button
+const int led1 = 9;
+const int led2 = 8;
+const int buttonPin = 2;
+// Variables for the duration and the distance
+long duration;
+int distance;
+// Creates a servo object for controlling the servo motor
+Servo myServo; 
+// System state variables
+bool systemActive = false; // Radar system ON/OFF state
+bool lastButtonState = HIGH; // Previous button state (pull-up, default HIGH)
+bool currentButtonState = HIGH; // Current button state
+// Debounce variables
+unsigned long lastDebounceTime = 0;
+unsigned long debounceDelay = 50; // 50ms debounce delay
+// Radar scanning variables
+int scanDirection = 1;  // 1: forward scan, -1: reverse scan
+int currentAngle = 15;  // Current servo angle
+unsigned long lastScanTime = 0;
+const int scanDelay = 30;  // Delay between each scan step (ms)
+
+
+void setup() {
+  pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
+  pinMode(echoPin, INPUT); // Sets the echoPin as an Input
+  pinMode(led1, OUTPUT);
+  pinMode(led2, OUTPUT); 
+  pinMode(buttonPin, INPUT_PULLUP);
+
+  Serial.begin(9600);
+  myServo.write(currentAngle);
+  myServo.attach(12); // Defines on which pin is the servo motor attached
+
+  // Initial state: system OFF
+  updateLEDs();
+  Serial.println("Press button to start/stop radar");
+}
+void loop() {
+  // Handle button input (with debounce)
+  handleButton();
+  // If system is active, perform radar scan
+  if (systemActive) {
+    performRadarScan();
+  } 
+  else {
+    // When system is OFF, ensure servo returns to initial position
+    if (currentAngle != 15) {
+      currentAngle = 15;
+      myServo.write(currentAngle);
+    }
+  }
+  // Update LED status
+  updateLEDs();
+}
+
+void handleButton() {
+  // Read button state
+  bool reading = digitalRead(buttonPin);
+  
+  // If button state has changed
+  if (reading != lastButtonState) {
+    lastDebounceTime = millis();  // Reset debounce timer
+  }
+  
+  // Check if enough time has passed for debouncing
+  if ((millis() - lastDebounceTime) > debounceDelay) {
+    // If button state is stable and has changed
+    if (reading != currentButtonState) {
+      currentButtonState = reading;
+      
+      // Detect button press (LOW state)
+      if (currentButtonState == LOW) {
+        // Toggle system state
+        systemActive = !systemActive;
+        
+        if (systemActive) {
+          Serial.println("Radar System: ACTIVE");
+        } else {
+          Serial.println("Radar System: STANDBY");
+          // Stop scanning, return to initial position
+          currentAngle = 15;
+          scanDirection = 1;
+        }
+      }
+    }
+  }
+  
+  // Save current state for next comparison
+  lastButtonState = reading;
+}
+
+// Perform radar scanning
+void performRadarScan() {
+  // Check if it's time for next scan step
+  if (millis() - lastScanTime >= scanDelay) {
+    lastScanTime = millis();
+    
+    // Calculate distance
+    distance = calculateDistance();
+    
+    // Send data to serial (for Processing or other visualization)
+    Serial.print(currentAngle);
+    Serial.print(",");
+    Serial.print(distance);
+    Serial.print(".");
+    
+    // Update angle
+    currentAngle = currentAngle + scanDirection;
+    myServo.write(currentAngle);
+    
+    // Check if need to change scan direction
+    if (currentAngle >= 165) {
+      scanDirection = -1;  // Start reverse scan
+    } else if (currentAngle <= 15) {
+      scanDirection = 1;   // Start forward scan
+    }
+  }
+}
+
+// Calculate distance using ultrasonic sensor
+int calculateDistance() {
+  // Send ultrasonic pulse
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  
+  // Read echo time
+  duration = pulseIn(echoPin, HIGH);
+  
+  // Calculate distance in cm
+  distance = duration * 0.034 / 2;
+  
+  return distance;
+}
+
+// Update LED status based on system state
+void updateLEDs() {
+  if (systemActive) {
+    // System active: LED2 ON continuously (green running light)
+    if (distance < 30){
+      digitalWrite(led1, HIGH);
+      digitalWrite(led2, LOW);
+    }
+    else{
+      digitalWrite(led1, LOW);
+      digitalWrite(led2, HIGH);
+    }
+  } else {
+    // System standby: both led off
+    digitalWrite(led1, LOW);
+    digitalWrite(led2, LOW);
+  }
+}
