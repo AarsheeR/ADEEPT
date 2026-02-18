@@ -1,0 +1,516 @@
+// ===== MODES =====
+#define AMBIENT_MODE 0
+#define FOCUS_MODE 1
+#define RADAR_MODE 2
+#include <Wire.h> //for the lcd
+#include <LiquidCrystal_I2C.h> //for the lcd
+#include <virtuabotixRTC.h> //for the rtc module
+#include <Servo.h> //rader
+
+// ===== LCD =====
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// ===== RTC =====
+virtuabotixRTC myRTC(6, 7, 8);
+
+// ===== BUTTONS =====
+const int button1 = 2;   // mode + start
+const int button2 = 4;   // decrease time
+const int button3 = 5;   // increase time
+
+// ===== RADAR COMPONENTS =====
+// Ultrasonic sensor pins
+const int trigPin = 10;
+const int echoPin = 11;
+
+// LEDs
+const int redLED = 9; 
+const int greenLED = 13; 
+
+// Servo motor
+Servo myServo;
+const int servoPin = 12;
+
+// Radar system state
+bool radarActive = true; // Radar is active only in RADAR_MODE
+bool radarLastButtonState = HIGH;
+int scanDirection = 1; // 1: forward scan, -1: reverse scan
+int currentAngle = 15; // Current servo angle
+unsigned long lastScanTime = 0;
+const int scanDelay = 30; // Delay between each scan step (ms)
+
+// Distance variables
+long radarDuration;
+int radarDistance;
+
+
+// ===== OUTPUTS =====
+const int buzzerPin = 3;
+const int led = A1;
+
+// ===== LIGHT SENSOR =====
+const int ldrPin = A0;
+const int darkThreshold = 200;
+
+// ===== SYSTEM STATE =====
+int currentMode = AMBIENT_MODE;
+bool introDone = false;
+
+// ===== BUTTON 1 STATE =====
+bool lastButtonState = HIGH;
+bool buttonPressed = false;
+unsigned long pressStartTime = 0;
+unsigned long lastDebounceTime = 0;
+
+const unsigned long debounceTime = 20;
+const unsigned long longPressTime = 350;
+
+// ===== TIMER VARIABLES =====
+int min = 2;
+int sec = 0;
+
+bool timerRunning = false;
+bool timerFinished = false;
+
+unsigned long lastTimerTick = 0;
+
+bool buzzing = false;
+unsigned long buzzStartTime = 0;
+const unsigned long buzzDuration = 5000; // 5 seconds
+
+// ===================== SETUP ========================
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(button1, INPUT_PULLUP); // Make the button pin an input with the internal pull up resistor enabled
+  pinMode(button2, INPUT_PULLUP);
+  pinMode(button3, INPUT_PULLUP);
+
+  pinMode(led, OUTPUT); // led
+  pinMode(buzzerPin, OUTPUT); //buzzer
+
+  // ===== RADAR SETUP =====
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(redLED, OUTPUT);
+  pinMode(greenLED, OUTPUT);
+  myServo.attach(servoPin);
+  myServo.write(currentAngle);
+  
+  // Initialize radar LEDs based on mode
+  updateRadarLEDs();
+
+  Serial.println("System started");
+
+  // SET TIME ONCE, THEN COMMENT OUT 
+  // seconds, minutes, hours, dayOfWeek, day, month, year
+  myRTC.setDS1302Time(0, 54, 2, 1, 8, 2, 2026);
+
+
+  // initialize the LCD
+	lcd.begin();
+	lcd.backlight();
+
+  // INTRO SCREEN
+  lcd.setCursor(0, 0);
+	lcd.print("Hello, I am Desk");
+  lcd.setCursor(0, 1);
+  lcd.print("Buddy ;)");
+
+  delay(5000);
+  lcd.clear();
+
+  introDone = true;   // loop is allowed to run
+}
+
+// ====================== LOOP =====================
+
+void loop() {
+  if (!introDone) {
+    return;   // do NOTHING until intro finishes
+  }
+  handleButton1();
+  handleButton2();
+  handleButton3();
+
+  // Execute current mode functionality
+  switch (currentMode) {
+    case AMBIENT_MODE:
+      runAmbientMode();
+      break;
+    case FOCUS_MODE:
+      runFocusMode();
+      break;
+    case RADAR_MODE:
+      runRadarMode();
+      break;
+  }
+  
+  // Update radar LEDs (status indicator)
+  updateRadarLEDs();
+  //other loop code goes here if neccessary, ensure no delays or loops that exit quickly
+}
+
+// ================= BUTTON 1 ==========
+
+void handleButton1() {
+  int reading = digitalRead(button1);
+
+  // Debounce check
+  if (reading != lastButtonState) {
+    lastDebounceTime = millis();
+  }
+
+  if ((millis() - lastDebounceTime) > debounceTime) {
+
+    // Button pressed
+    if (reading == LOW && !buttonPressed) {
+      buttonPressed = true;
+      pressStartTime = millis();
+    }
+
+    // Button released
+    if (reading == HIGH && buttonPressed) {
+      buttonPressed = false;
+      unsigned long pressDuration = millis() - pressStartTime;
+
+      // LONG PRESS → SWITCH MODES
+      if (pressDuration >= longPressTime) {
+        // Cycle to next mode
+        currentMode = (currentMode + 1) % 3;  // 0→1→2→0
+        
+        // Print mode information
+        switch (currentMode) {
+          case AMBIENT_MODE:
+            Serial.println("Mode switched to: AMBIENT");
+            // Reset radar to initial position when leaving radar mode
+            currentAngle = 15;
+            scanDirection = 1;
+            myServo.write(currentAngle);
+            break;
+          case FOCUS_MODE:
+            Serial.println("Mode switched to: FOCUS");
+            // Reset radar to initial position when leaving radar mode
+            currentAngle = 15;
+            scanDirection = 1;
+            myServo.write(currentAngle);
+            break;
+          case RADAR_MODE:
+            stopBuzzer();
+            Serial.println("Mode switched to: RADAR");
+            break;
+        }
+      }
+
+      // SHORT PRESS → START/PAUSE TIMER
+      else {
+
+        if (currentMode == FOCUS_MODE && !timerFinished) {
+          timerRunning = !timerRunning;
+        }
+      }
+
+    }
+  }
+
+  lastButtonState = reading;
+
+}
+
+// ================= BUTTON 2 ====================== 
+
+void handleButton2() {
+
+  if (digitalRead(button2) == LOW && currentMode == FOCUS_MODE && !timerRunning) {
+
+    if (min > 1) {
+      min--;
+    }
+    delay(200); // simple debounce
+  }
+}
+ 
+// ================= BUTTON 3 =========================
+
+void handleButton3() {
+
+  if (digitalRead(button3) == LOW && currentMode == FOCUS_MODE && !timerRunning) {
+
+    if (min < 59) {
+      min++;
+    }
+    delay(200);
+  }
+}
+
+// ================= AMBIENT MODE =========
+void runAmbientMode() {
+
+  static unsigned long lastUpdate = 0;
+
+  if (millis() - lastUpdate > 1000) {
+
+    lastUpdate = millis();
+
+    showClock();
+    handleAmbientLight();
+
+    // reset timer when returning
+    min = 2;
+    sec = 0;
+    timerRunning = false;
+    timerFinished = false;
+  }
+}
+ 
+// ================= FOCUS MODE ===================== 
+
+void runFocusMode() {
+
+  runFocusTimer();
+  showFocusTimer();
+  handleBuzzer();
+}
+
+// ================= TIMER ENGINE ==== 
+
+void runFocusTimer() {
+
+  if (!timerRunning) return;
+
+  if (millis() - lastTimerTick >= 1000) {
+
+    lastTimerTick = millis();
+
+    // ----- CHECK IF TIMER FINISHED -----
+    if (min == 0 && sec == 0) {
+      timerRunning = false;
+      timerFinished = true;
+      buzzing = true;
+      buzzStartTime = millis();
+      return;
+    }
+
+    // ----- NORMAL COUNTDOWN -----
+    if (sec == 0) {
+      sec = 59;
+      min--;
+    }
+    else {
+      sec--;
+    }
+  }
+}
+
+
+// ================= BUZZER =======================
+
+void handleBuzzer() {
+
+  if (!buzzing) {
+    return;
+  }
+
+  // Stop buzzing after 5 seconds
+  if (millis() - buzzStartTime > buzzDuration) {
+    buzzing = false;
+    timerFinished = false;
+
+    // Reset timer so user can set again
+    min = 2;
+    sec = 0;
+
+    return;
+  }
+
+  // Beeping pattern
+  if (millis() % 800 < 400) {
+    digitalWrite(buzzerPin, HIGH);
+  } else {
+    digitalWrite(buzzerPin, LOW);
+  }
+}
+
+void stopBuzzer() {
+  digitalWrite(buzzerPin, LOW);
+}
+
+// ================= DISPLAY TIMER ======== 
+
+void showFocusTimer() {
+
+  lcd.setCursor(0,0);
+
+  if (timerFinished) {
+    lcd.print("Time's Up!     ");
+  }
+  else if (timerRunning) {
+    lcd.print("Focus Running  ");
+  }
+  else {
+    lcd.print("Focus Ready    ");
+  }
+  lcd.setCursor(0,1);
+
+
+  if (min < 10) lcd.print("0");
+  lcd.print(min);
+  lcd.print(":");
+
+  if (sec < 10) lcd.print("0");
+  lcd.print(sec);
+}
+
+// ================= DISPLAY CLOCK ============
+
+void showClock() {
+  myRTC.updateTime();
+
+  // ----- Converting from military time ------
+
+  int hour24 = myRTC.hours;
+  int hour12;
+  String ampm;
+
+  if (hour24 == 0) {
+    hour12 = 12;
+    ampm = "AM";
+  } else if (hour24 < 12) {
+    hour12 = hour24;
+    ampm = "AM";
+  } else if (hour24 == 12) {
+    hour12 = 12;
+    ampm = "PM";
+  } else {
+    hour12 = hour24 - 12;
+    ampm = "PM";
+  }
+
+  // ----- LINE 1: TIME ----
+  lcd.setCursor(0, 0);
+  lcd.print("Time: ");
+
+  if (myRTC.hours < 10) lcd.print("0");
+  lcd.print(hour12);
+  lcd.print(":");
+  if (myRTC.minutes < 10) lcd.print("0");
+  lcd.print(myRTC.minutes);
+  lcd.print(" ");
+  lcd.print(ampm);
+  // ----- LINE 2: DATE -----
+  lcd.setCursor(0, 1);
+  lcd.print("Date: ");
+
+  if (myRTC.month < 10) lcd.print("0");
+  lcd.print(myRTC.month);
+  lcd.print("/");
+
+  if (myRTC.dayofmonth < 10) lcd.print("0");
+  lcd.print(myRTC.dayofmonth);
+  lcd.print("/");
+
+  lcd.print(myRTC.year);
+}
+
+// ================= LIGHT SENSOR ===============
+
+void handleAmbientLight() {
+  int lightLevel = analogRead(ldrPin);
+
+  if (lightLevel < darkThreshold) {
+     //dark →  led ON
+     Serial.println("Ambient: DARK");
+     digitalWrite(led, HIGH);
+  } else {
+     //bright →  led OFF
+     Serial.println("Ambient: BRIGHT");
+     digitalWrite(led,LOW);
+  }
+}
+
+// ================= RADAR MODE =========
+void runRadarMode() {
+  // Perform radar scanning
+  performRadarScan();
+  
+  // Print radar status occasionally
+  static unsigned long lastStatusPrint = 0;
+  if (millis() - lastStatusPrint > 3000) {
+    lastStatusPrint = millis();
+    Serial.println("RADAR MODE active");
+  }
+}
+
+// ================= RADAR FUNCTIONS =======================
+
+// Perform radar scanning
+void performRadarScan() {
+  // Check if it's time for next scan step
+  if (millis() - lastScanTime >= scanDelay) {
+    lastScanTime = millis();
+    
+    // Calculate distance
+    radarDistance = calculateRadarDistance();
+    
+    // Send data to serial (for visualization)
+    Serial.print("Radar: ");
+    Serial.print(currentAngle);
+    Serial.print("°, Distance: ");
+    Serial.print(radarDistance);
+    Serial.println("cm");
+    
+    // Update angle
+    currentAngle = currentAngle + scanDirection;
+    myServo.write(currentAngle);
+    
+    // Check if need to change scan direction
+    if (currentAngle >= 165) {
+      scanDirection = -1;  // Start reverse scan
+    } else if (currentAngle <= 15) {
+      scanDirection = 1;   // Start forward scan
+    }
+  }
+}
+
+// Calculate distance using ultrasonic sensor
+int calculateRadarDistance() {
+  // Send ultrasonic pulse
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  
+  // Read echo time
+  radarDuration = pulseIn(echoPin, HIGH);
+  
+  // Calculate distance in cm
+  radarDistance = radarDuration * 0.034 / 2;
+  
+  return radarDistance;
+}
+
+// Update radar LED status based on mode
+void updateRadarLEDs() {
+  if (currentMode == RADAR_MODE) 
+  {
+    // Radar mode: LED2 ON continuously (green running light)
+    if (radarDistance < 30)
+    {
+      digitalWrite(redLED, HIGH);
+      digitalWrite(greenLED, LOW);
+    }
+    else
+    {
+      digitalWrite(redLED, LOW);
+      digitalWrite(greenLED, HIGH);
+    }
+  } 
+  else 
+  {
+    // System standby: both led off
+    digitalWrite(redLED, LOW);
+    digitalWrite(greenLED, LOW);
+  }
+}
